@@ -1,56 +1,92 @@
-# 만기매칭형 ETF 듀레이션별 수급(Fund Flow) 트래커
+# Target‑Maturity ETF Tracker (Dynamic Discovery)
 
-상위 만기매칭형 ETF의 상장좌수(Shares) 및 NAV 변동을 추적하여, 가격 평가 손익을 배제한 **실질 자금 순유입액(Fund Flow)**을 계산하고 이를 **잔존 듀레이션 버킷별**로 집계하여 채권 시장 패시브 수급 시그널로 활용하는 트레이딩 데스크 대시보드입니다.
-
----
-
-## 🛠️ 주요 기능
-
-1. **ETF 유니버스 마스터 관리**: 만기매칭형 ETF 종목 정보 및 타겟 만기 청산일 지정 (`config/etf_universe.json`)
-2. **실시간 KRX / 네이버 금융 라이브 데이터 수집**: `pykrx` 및 네이버 금융 스크래핑을 통한 일별 상장좌수, NAV, AUM 자동 수집
-3. **실질 순유입액 & 잔존 듀레이션 산출**: 
-   $$\text{Net Fund Flow}_t = (\text{Shares}_t - \text{Shares}_{t-1}) \times \text{NAV}_{t-1}$$
-   $$\text{Duration}_t = \frac{\text{Target Date} - \text{Current Date}}{365.25}$$
-4. **듀레이션 버킷 및 이동평균**: `0.5Y 이하`, `1.0Y 구간`, `1.5Y 구간`, `2.0Y 이상` 버킷 분류 및 3일/5일 이동평균 유입액 처리
-5. **Streamlit 다크모드 트레이딩 대시보드**: Plotly 기반 듀레이션 버킷별 수급 차트, 개별 ETF 좌수/수급 연동 차트, 최근 5일 요약 테이블 제공
+**Fully automated** tracker that discovers **all** Korean target‑maturity (만기매칭형) bond ETFs in real‑time, stores daily NAV/AUM data in a local SQLite DB, computes **real net fund‑flow** and **duration buckets**, and visualizes the results in an interactive Streamlit dashboard.
 
 ---
 
-## 📂 프로젝트 구조
+## 🛠️ Core Features (현재 구현된 주요 기능)
+
+1. **Dynamic ETF Universe Discovery**
+   - At each run, the collector calls Naver Finance (`etfItemList.nhn`) to fetch **the entire list of ~1,150 ETFs**.
+   - A regex (`\d{2}-\d{2}`) extracts the target year‑month from the fund name, automatically selecting **all** maturity‑matching ETFs **without any hard‑coded JSON file**.
+   - From the discovered set, the **top‑10 by AUM** are selected and up‑serted into `etf_master`.
+2. **Live Market Data Capture**
+   - For the selected 10 ETFs, daily price history is retrieved via Naver chart API.
+   - Current NAV, shares outstanding, and AUM are combined with historical prices to produce a clean daily dataset.
+3. **Net Fund‑Flow & Duration Calculation**
+   - Net Flow: `(Shares_t - Shares_{t‑1}) × NAV_{t‑1}`
+   - Duration: `(TargetDate - CurrentDate) / 365.25`
+   - Bucketing into `0‑0.5Y`, `0.5‑1.0Y`, `1.0‑1.5Y`, `>1.5Y` for macro analysis.
+4. **Streamlit Dashboard**
+   - Dark‑mode UI with Plotly charts.
+   - Sidebar filters for **date range**, **sorting (AUM / shortest‑maturity / longest‑maturity)**, and **asset class**.
+   - Real‑time cumulative net‑flow updates when the period selection changes.
+5. **Windows Task Scheduler Automation**
+   - `setup_task_scheduler.bat` registers a daily task (`ETF_FundFlow_Tracker`) that runs at **16:00** and silently executes `run_daily_sync.bat` (collector + processor).
+   - No manual batch execution required after the one‑time registration.
+
+---
+
+## 📂 Project Structure
 
 ```text
 c:/Users/Check/Downloads/만기매칭형 ETF/
-├── config/
-│   └── etf_universe.json       # 10개 만기매칭형 ETF 종목 및 만기일 정의
 ├── data/
-│   └── tracker.db              # SQLite 데이터베이스
+│   └── tracker.db                 # SQLite DB (auto‑created)
 ├── src/
 │   ├── __init__.py
-│   ├── db_manager.py           # DB 관리 및 CRUD 모듈
-│   ├── collector.py            # PyKRX / 네이버 금융 데이터 수집기
-│   └── processor.py            # Fund Flow 및 듀레이션 산출 로직
-├── app.py                      # Streamlit 메인 대시보드
-├── requirements.txt            # 의존성 라이브러리
-└── README.md
+│   ├── db_manager.py              # DB schema & UPSERT sync
+│   ├── collector.py               # Dynamic discovery & daily raw import
+│   └── processor.py               # Fund‑flow & duration calculations
+├── app.py                         # Streamlit dashboard
+├── requirements.txt               # Python dependencies
+├── run_daily_sync.bat             # Headless execution script
+├── run_tracker.bat                # Launches Streamlit UI
+├── setup_task_scheduler.bat       # Registers Windows scheduled task
+└── README.md                     # (this file)
 ```
 
 ---
 
-## 🚀 실행 방법
+## 🚀 Getting Started
 
-### 1. 패키지 설치
-```bash
-pip install -r requirements.txt
-```
+1. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. **Initial DB setup & first data pull**
+   ```bash
+   python -m src.db_manager   # creates tables
+   python -m src.collector    # discovers ETFs & stores daily raw data
+   python -m src.processor    # calculates fund‑flow & duration
+   ```
+3. **Run the dashboard**
+   ```bash
+   streamlit run app.py
+   ```
+4. **(Optional) Automate daily collection**
+   ```bash
+   setup_task_scheduler.bat   # registers the 16:00 daily task
+   ```
 
-### 2. 데이터베이스 초기화 및 데이터 수집
-```bash
-python -m src.db_manager
-python -m src.collector
-python -m src.processor
-```
+---
 
-### 3. Streamlit 대시보드 실행
-```bash
-streamlit run app.py
-```
+## 📊 What You See on the Dashboard
+
+- **ETF table** showing ticker, name, target date, current AUM, and latest NAV.
+- **Duration‑bucket chart** with cumulative net‑flow (blue = inflow, red = outflow).
+- **Date‑range selector** – the cumulative figure updates instantly, reflecting exactly the period you choose.
+
+---
+
+## 📌 Future Enhancements (planned)
+
+- Credit‑spread integration (K‑Bond API) for correlation analysis.
+- Institution / foreign investor net‑position parsing.
+- Multi‑year historical back‑fill (once the market data becomes available).
+
+---
+
+## 📜 License
+
+MIT License – feel free to fork, adapt, and contribute!
