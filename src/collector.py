@@ -41,6 +41,30 @@ def fetch_etf_live_naver():
         print(f"[Collector Naver API Error]: {e}")
     return live_map
 
+def fetch_exact_shares_naver(ticker):
+    """
+    Scrapes the exact live shares outstanding (상장주식수) from Naver Finance item page.
+    """
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={ticker}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        r = requests.get(url, headers=headers, timeout=5)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, 'html.parser')
+            for tr in soup.find_all('tr'):
+                if '상장주식수' in tr.text:
+                    tds = tr.find_all('td')
+                    if tds:
+                        val_str = tds[0].text.strip().replace(',', '')
+                        nums = re.findall(r'\d+', val_str)
+                        if nums:
+                            return int(nums[0])
+    except Exception as e:
+        print(f"[Collector Exact Shares Error] Ticker {ticker}: {e}")
+    return None
+
 def discover_maturity_matching_etfs(live_map):
     """
     Scans the entire live_map for ETFs that have YY-MM target dates in their names.
@@ -148,9 +172,10 @@ def collect_historical_data(days_back=30):
         chart_df = fetch_etf_chart_naver(ticker, count=days_back)
         
         live_info = live_map.get(ticker, {})
+        exact_shares = fetch_exact_shares_naver(ticker)
         base_nav = live_info.get('nav', 10000.0)
-        base_shares = live_info.get('shares_outstanding', 1000000)
-        base_aum = live_info.get('aum', int(base_shares * base_nav))
+        base_shares = exact_shares if exact_shares else live_info.get('shares_outstanding', 1000000)
+        base_aum = int(base_shares * base_nav)
 
         if not chart_df.empty:
             # Use daily price ratio to NAV for real daily estimates

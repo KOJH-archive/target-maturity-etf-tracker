@@ -130,6 +130,7 @@ def main():
 
     # Calculate Top KPI Cards
     total_flow = filtered_df['net_fund_flow'].sum()
+    total_shares_change = filtered_df['net_shares_change'].sum()
     latest_date_str = filtered_df['date'].max()
     snapshot_df = filtered_df[filtered_df['date'] == latest_date_str].copy()
     active_etf_cnt = snapshot_df['ticker'].nunique()
@@ -141,15 +142,18 @@ def main():
     with col2:
         st.metric("기간 내 총 순유입액", format_eok(total_flow))
     with col3:
-        st.metric("추적 중인 펀드 수", f"{active_etf_cnt} 개")
+        st.metric("기간 내 상장좌수 변동", f"{total_shares_change:+,.0f} 좌")
     with col4:
         st.metric("최근 데이터 기준일", latest_date_str)
 
     st.markdown("---")
 
     # Prepare Ticker-Centric Summary Data
-    flow_summary = filtered_df.groupby('ticker')['net_fund_flow'].sum().reset_index()
-    summary_df = pd.merge(snapshot_df, flow_summary, on='ticker', suffixes=('_latest', '_total'))
+    summary_agg = filtered_df.groupby('ticker').agg({
+        'net_fund_flow': 'sum',
+        'net_shares_change': 'sum'
+    }).reset_index()
+    summary_df = pd.merge(snapshot_df, summary_agg, on='ticker', suffixes=('_latest', '_total'))
 
     # Apply Sorting
     if sort_option == "순자산(AUM) 큰 순":
@@ -162,7 +166,7 @@ def main():
     # Section 1: 종목별 현황 메인 테이블
     st.subheader("1. 종목별 수급 현황 및 듀레이션 요약")
     
-    display_df = summary_df[['name', 'ticker', 'target_date', 'duration', 'aum', 'shares_outstanding', 'net_fund_flow_total']].copy()
+    display_df = summary_df[['name', 'ticker', 'target_date', 'duration', 'aum', 'shares_outstanding', 'net_shares_change_total', 'net_fund_flow_total']].copy()
     display_df.rename(columns={
         'name': '종목명',
         'ticker': '종목코드',
@@ -170,6 +174,7 @@ def main():
         'duration': '잔존 듀레이션(연)',
         'aum': '순자산총액(AUM)',
         'shares_outstanding': '현재 상장좌수',
+        'net_shares_change_total': '기간 내 좌수 변동',
         'net_fund_flow_total': '총 누적 유입액(조회기간)'
     }, inplace=True)
     
@@ -178,6 +183,7 @@ def main():
     fmt_display_df['잔존 듀레이션(연)'] = fmt_display_df['잔존 듀레이션(연)'].apply(lambda x: f"{x:.2f}년" if pd.notna(x) else "-")
     fmt_display_df['순자산총액(AUM)'] = fmt_display_df['순자산총액(AUM)'].apply(lambda x: f"{x/100000000:,.0f}억 원" if pd.notna(x) else "0")
     fmt_display_df['현재 상장좌수'] = fmt_display_df['현재 상장좌수'].apply(lambda x: f"{x:,.0f}좌" if pd.notna(x) else "0")
+    fmt_display_df['기간 내 좌수 변동'] = fmt_display_df['기간 내 좌수 변동'].apply(lambda x: f"{x:+,.0f}좌" if pd.notna(x) else "0좌")
     fmt_display_df['총 누적 유입액(조회기간)'] = fmt_display_df['총 누적 유입액(조회기간)'].apply(lambda x: f"{x/100000000:,.2f}억 원" if pd.notna(x) else "0")
     
     st.dataframe(fmt_display_df, use_container_width=True, hide_index=True)
